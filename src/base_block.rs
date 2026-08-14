@@ -37,6 +37,20 @@ impl BB {
     pub fn iter(&self) -> std::slice::Iter<'_, MyInst> {
         self.insts.iter()
     }
+
+    pub fn size(&self) -> usize {
+        if !self.is_complete(){
+            panic!("you're operating a not compete base block");
+        }
+
+        let last = self.last().unwrap();
+        return  last.ip() as usize + last.len();
+    }
+
+    pub fn contains(&self, rva:u32) ->bool {
+        let last = self.last();
+        rva >= self.rva() && rva < self.size() as u32
+    }
 }
 
 impl fmt::Display for BB {

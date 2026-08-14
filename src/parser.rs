@@ -10,7 +10,7 @@ use pelite::{
     pe::{Pe, headers::SectionHeader},
     pe64::PeFile,
 };
-use std::collections::{HashSet, VecDeque};
+use std::{collections::{BTreeMap, HashSet, VecDeque}, ops::Mul};
 
 use crate::base_block::BB;
 use crate::disassember::Disassemer;
@@ -98,8 +98,11 @@ struct ParserContext<'a> {
     pe: &'a PeFile<'a>,
     disassember: Disassemer,
     code_sections: Vec<CodeSegment>,
+
     seen_rvas: HashSet<u32>,
     work_list: VecDeque<Entry>,
+
+    bb_map: BTreeMap<u32, BB>
 }
 
 impl<'a> ParserContext<'a> {
@@ -110,6 +113,7 @@ impl<'a> ParserContext<'a> {
             code_sections: Vec::new(),
             seen_rvas: HashSet::new(),
             work_list: VecDeque::new(),
+            bb_map:BTreeMap::new(),
         }
     }
 
@@ -208,6 +212,26 @@ impl PEParser {
         Some(bb)
     }
 
+
+    fn split_bb(&self, ctx:& mut ParserContext, start:u32 , rva:u32 ){
+        ctx.bb_map.get(&start);
+    }
+
+    fn get_or_make_bb<'a >(&self, ctx:&'a mut ParserContext, rva: u32) ->Option<&'a BB> {
+        if ctx.bb_map.contains_key(&rva) {
+            return ctx.bb_map.get(&rva);
+        }
+
+        if let Some(start) = find_containing(ctx, rva) {
+            self.split_bb(ctx, start.0, rva); // 传 u32，不传引用
+            return ctx.bb_map.get(&rva);
+        }
+
+        let bb = self.make_bb(ctx, rva)?;
+        ctx.bb_map.insert(rva, bb);
+        ctx.bb_map.get(&rva)
+    }
+
     fn walk_entry(&self, ctx: &mut ParserContext, rva: u32) -> Option<BB> {
         if let Some(bb) = self.make_bb(ctx, rva) {
             if !bb.is_complete() {
@@ -288,9 +312,10 @@ impl PEParser {
             // parse function at rva
             debug!("Parsing function at RVA: 0x{:X}", e.rva);
             if let Some(bb) = self.walk_entry(&mut ctx, e.rva) {
-                debug!("{}", bb);
+                
+                ctx.bb_map.insert(bb.rva(), bb);
             }
-            // debug!("work_list: {:?}", ctx.work_list);
+            
         }
 
         Ok(())
@@ -316,3 +341,10 @@ impl PEParser {
         Ok(())
     }
 }
+
+
+    fn find_containing<'a>(ctx:&'a mut ParserContext, rva:u32 ) -> Option<(u32, &'a BB)> {
+        ctx.bb_map.range(..=rva).next_back()
+            .filter(|(_, bb)| bb.contains(rva))
+            .map(|(&start, bb)| (start, bb))
+    }

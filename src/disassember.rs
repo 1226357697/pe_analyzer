@@ -95,6 +95,10 @@ impl MyInst {
         }
     }
 
+    pub fn ip(&self)->u64 {
+        self.0.ip()
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
