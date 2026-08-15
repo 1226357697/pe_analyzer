@@ -10,7 +10,10 @@ use pelite::{
     pe::{Pe, headers::SectionHeader},
     pe64::PeFile,
 };
-use std::{collections::{BTreeMap, HashSet, VecDeque}, ops::Mul};
+use std::{
+    collections::{BTreeMap, HashSet, VecDeque},
+    ops::Mul,
+};
 
 use crate::base_block::BB;
 use crate::disassember::Disassemer;
@@ -102,7 +105,7 @@ struct ParserContext<'a> {
     seen_rvas: HashSet<u32>,
     work_list: VecDeque<Entry>,
 
-    bb_map: BTreeMap<u32, BB>
+    bb_map: BTreeMap<u32, BB>,
 }
 
 impl<'a> ParserContext<'a> {
@@ -113,7 +116,7 @@ impl<'a> ParserContext<'a> {
             code_sections: Vec::new(),
             seen_rvas: HashSet::new(),
             work_list: VecDeque::new(),
-            bb_map:BTreeMap::new(),
+            bb_map: BTreeMap::new(),
         }
     }
 
@@ -201,6 +204,7 @@ impl PEParser {
             let inst = bb.add_inst(inst);
 
             if inst.is_bb_terminal() {
+                bb.set_complete();
                 break;
             }
 
@@ -212,33 +216,40 @@ impl PEParser {
         Some(bb)
     }
 
-
-    fn split_bb(&self, ctx:& mut ParserContext, start:u32 , rva:u32 ){
-        ctx.bb_map.get(&start);
+    fn split_bb(&self, ctx: &mut ParserContext, start: u32, rva: u32) {
+        let bb = ctx
+            .bb_map
+            .get_mut(&start)
+            .expect(format!("can't find base block at {}", start).as_str());
+        if let Some(new_bb) = bb.split_at(rva) {
+            ctx.bb_map.insert(rva, new_bb);
+        }
     }
 
-    fn get_or_make_bb<'a >(&self, ctx:&'a mut ParserContext, rva: u32) ->Option<&'a BB> {
+    fn get_or_make_bb<'a>(&self, ctx: &'a mut ParserContext, rva: u32) -> Option<(bool, &'a BB)> {
         if ctx.bb_map.contains_key(&rva) {
-            return ctx.bb_map.get(&rva);
+            return Some((false, ctx.bb_map.get(&rva)?));
         }
 
         if let Some(start) = find_containing(ctx, rva) {
-            self.split_bb(ctx, start.0, rva); // 传 u32，不传引用
-            return ctx.bb_map.get(&rva);
+            let start_rva = start.0;
+            self.split_bb(ctx, start_rva, rva); // 传 u32，不传引用
+            return Some((false, ctx.bb_map.get(&rva)?));
         }
 
         let bb = self.make_bb(ctx, rva)?;
         ctx.bb_map.insert(rva, bb);
-        ctx.bb_map.get(&rva)
+        Some((true, ctx.bb_map.get(&rva)?))
     }
 
-    fn walk_entry(&self, ctx: &mut ParserContext, rva: u32) -> Option<BB> {
-        if let Some(bb) = self.make_bb(ctx, rva) {
+    fn walk_entry(&self, ctx: &mut ParserContext, rva: u32) {
+        if let Some(result) = self.get_or_make_bb(ctx, rva) {
+            let created = result.0;
+            let bb = result.1;
             if !bb.is_complete() {
                 warn!("got a uncomplete bb at {:?}", bb.rva());
-                return None;
             }
-
+            let mut tmp_entrys: Vec<Entry> = Vec::new();
             // 收集 call语义
             let call_entrys: Vec<_> = bb
                 .iter()
@@ -250,7 +261,7 @@ impl PEParser {
                         .expect("this call hasn't target value") as u32,
                 })
                 .collect();
-            ctx.work_list.extend(call_entrys);
+            tmp_entrys.extend(call_entrys);
 
             if let Some(last) = bb.last() {
                 if last.is_branch() {
@@ -260,11 +271,12 @@ impl PEParser {
                         .get_branch_target()
                         .expect("this branch hasn't target value");
 
-                    ctx.work_list.push_back(Entry {
+                    tmp_entrys.push(Entry {
                         kind: EntryKind::FallThrough,
                         rva: next_ip as u32,
                     });
-                    ctx.work_list.push_back(Entry {
+
+                    tmp_entrys.push(Entry {
                         kind: EntryKind::Branch,
                         rva: target_ip as u32,
                     });
@@ -275,16 +287,14 @@ impl PEParser {
                     let target_ip = last
                         .get_branch_target()
                         .expect("this branch hasn't target value");
-                    ctx.work_list.push_back(Entry {
+                    tmp_entrys.push(Entry {
                         kind: EntryKind::Jmp,
                         rva: target_ip as u32,
                     });
                 }
             }
-            return Some(bb);
+            ctx.work_list.extend(tmp_entrys);
         }
-
-        None
     }
 
     fn parse_functions(&self, pe: &PeFile) -> AnyhowResult<()> {
@@ -311,11 +321,7 @@ impl PEParser {
 
             // parse function at rva
             debug!("Parsing function at RVA: 0x{:X}", e.rva);
-            if let Some(bb) = self.walk_entry(&mut ctx, e.rva) {
-                
-                ctx.bb_map.insert(bb.rva(), bb);
-            }
-            
+            self.walk_entry(&mut ctx, e.rva);
         }
 
         Ok(())
@@ -342,9 +348,10 @@ impl PEParser {
     }
 }
 
-
-    fn find_containing<'a>(ctx:&'a mut ParserContext, rva:u32 ) -> Option<(u32, &'a BB)> {
-        ctx.bb_map.range(..=rva).next_back()
-            .filter(|(_, bb)| bb.contains(rva))
-            .map(|(&start, bb)| (start, bb))
-    }
+fn find_containing<'a>(ctx: &'a mut ParserContext, rva: u32) -> Option<(u32, &'a BB)> {
+    ctx.bb_map
+        .range(..=rva)
+        .next_back()
+        .filter(|(_, bb)| bb.contains(rva))
+        .map(|(&start, bb)| (start, bb))
+}

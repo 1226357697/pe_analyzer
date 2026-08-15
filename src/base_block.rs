@@ -4,6 +4,7 @@ use std::fmt;
 pub struct BB {
     rva: u32,
     insts: Vec<MyInst>,
+    is_complete: bool,
 }
 
 impl BB {
@@ -11,6 +12,7 @@ impl BB {
         BB {
             rva,
             insts: Vec::new(),
+            is_complete: false,
         }
     }
 
@@ -27,6 +29,10 @@ impl BB {
         self.last().unwrap()
     }
 
+    pub fn set_complete(&mut self) {
+        self.is_complete = true
+    }
+
     pub fn is_complete(&self) -> bool {
         if let Some(last) = self.last() {
             return last.is_bb_terminal();
@@ -39,17 +45,28 @@ impl BB {
     }
 
     pub fn size(&self) -> usize {
-        if !self.is_complete(){
+        if !self.is_complete() {
             panic!("you're operating a not compete base block");
         }
 
         let last = self.last().unwrap();
-        return  last.ip() as usize + last.len();
+        return last.ip() as usize + last.len();
     }
 
-    pub fn contains(&self, rva:u32) ->bool {
-        let last = self.last();
+    pub fn contains(&self, rva: u32) -> bool {
         rva >= self.rva() && rva < self.size() as u32
+    }
+
+    pub fn split_at(&mut self, rva: u32) -> Option<BB> {
+        if self.rva() <= rva && rva < self.rva() + self.size() as u32 {
+            let mut new_bb = BB::make(rva);
+            let idx = self.insts.iter().position(|e| e.ip() as u32 == rva)?;
+
+            new_bb.insts = self.insts.split_off(idx);
+            new_bb.set_complete();
+            return Some(new_bb);
+        }
+        None
     }
 }
 

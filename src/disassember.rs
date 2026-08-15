@@ -95,7 +95,7 @@ impl MyInst {
         }
     }
 
-    pub fn ip(&self)->u64 {
+    pub fn ip(&self) -> u64 {
         self.0.ip()
     }
 
