@@ -324,6 +324,12 @@ impl PEParser {
             self.walk_entry(&mut ctx, e.rva);
         }
 
+        // for item in ctx.bb_map.iter() {
+        //     if !item.1.is_complete() {
+        //         warn!("found a not complete bb at {:X?}", item.0);
+        //     }
+        // }
+
         Ok(())
     }
 

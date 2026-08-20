@@ -1,6 +1,7 @@
 use crate::disassember::MyInst;
 use std::fmt;
 
+#[derive(Debug)]
 pub struct BB {
     rva: u32,
     insts: Vec<MyInst>,
@@ -34,10 +35,7 @@ impl BB {
     }
 
     pub fn is_complete(&self) -> bool {
-        if let Some(last) = self.last() {
-            return last.is_bb_terminal();
-        }
-        false
+        self.is_complete
     }
 
     pub fn iter(&self) -> std::slice::Iter<'_, MyInst> {
