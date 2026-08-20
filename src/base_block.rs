@@ -48,7 +48,7 @@ impl BB {
         }
 
         let last = self.last().unwrap();
-        return last.ip() as usize + last.len();
+        return last.ip() as usize + last.len() - self.rva() as usize;
     }
 
     pub fn contains(&self, rva: u32) -> bool {
